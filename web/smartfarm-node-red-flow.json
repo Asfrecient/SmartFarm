@@ -1,0 +1,430 @@
+[
+  {
+    "id": "flow-smartfarm",
+    "type": "tab",
+    "label": "SmartFarm",
+    "disabled": false,
+    "info": ""
+  },
+  {
+    "id": "mqtt-in",
+    "type": "mqtt in",
+    "z": "flow-smartfarm",
+    "name": "SmartFarm Data",
+    "topic": "smartfarm/data",
+    "qos": "0",
+    "datatype": "auto",
+    "broker": "emqx-broker",
+    "nl": false,
+    "rap": true,
+    "rh": 0,
+    "inputs": 0,
+    "x": 180,
+    "y": 120,
+    "wires": [
+      [
+        "json-parse"
+      ]
+    ]
+  },
+  {
+    "id": "json-parse",
+    "type": "json",
+    "z": "flow-smartfarm",
+    "name": "Parse JSON",
+    "property": "payload",
+    "action": "obj",
+    "pretty": false,
+    "x": 360,
+    "y": 120,
+    "wires": [
+      [
+        "fn-prepare"
+      ]
+    ]
+  },
+  {
+    "id": "fn-prepare",
+    "type": "function",
+    "z": "flow-smartfarm",
+    "name": "Prepare Metrics",
+    "func": "const p = msg.payload || {};\nconst now = new Date();\nconst row = {\n  time: now.toLocaleTimeString(),\n  temp: Number(p.temp ?? 0),\n  hum: Number(p.hum ?? 0),\n  soil: Number(p.soil ?? 0),\n  light: Number(p.light ?? 0),\n  rain: Number(p.rain ?? 0),\n  pump: Number(p.pump ?? 0),\n  alarm: Number(p.alarm ?? 0)\n};\nlet history = flow.get('smartfarm_history') || [];\nhistory.unshift(row);\nhistory = history.slice(0, 10);\nflow.set('smartfarm_history', history);\nconst make = (payload) => ({ payload });\nconst chartMessages = [\n  { topic: '温度', payload: row.temp },\n  { topic: '湿度', payload: row.hum },\n  { topic: '土壤湿度', payload: row.soil },\n  { topic: '光照强度', payload: row.light },\n  { topic: '降雨状态', payload: row.rain }\n];\nreturn [\n  make(row.temp),\n  make(row.hum),\n  make(row.soil),\n  make(row.light),\n  make(row.rain),\n  make(row.pump ? '水泵：开启' : '水泵：关闭'),\n  make(row.alarm ? '报警：异常' : '报警：正常'),\n  make('MQTT: ' + row.time),\n  chartMessages,\n  make(history)\n];",
+    "outputs": 10,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 560,
+    "y": 160,
+    "wires": [
+      [
+        "ui-gauge-temp"
+      ],
+      [
+        "ui-gauge-hum"
+      ],
+      [
+        "ui-gauge-soil"
+      ],
+      [
+        "ui-gauge-light"
+      ],
+      [
+        "ui-gauge-rain"
+      ],
+      [
+        "ui-text-pump"
+      ],
+      [
+        "ui-text-alarm"
+      ],
+      [
+        "ui-text-status"
+      ],
+      [
+        "ui-chart-history"
+      ],
+      [
+        "ui-template-history"
+      ]
+    ]
+  },
+  {
+    "id": "ui-gauge-temp",
+    "type": "ui_gauge",
+    "z": "flow-smartfarm",
+    "name": "Temperature Gauge",
+    "group": "ui-group-main",
+    "order": 1,
+    "width": 2,
+    "height": 3,
+    "gtype": "gage",
+    "title": "温度",
+    "label": "℃",
+    "format": "{{value}}",
+    "min": 0,
+    "max": "50",
+    "colors": [
+      "#2c7be5",
+      "#17a2b8",
+      "#28a745"
+    ],
+    "seg1": "15",
+    "seg2": "30",
+    "className": "",
+    "x": 980,
+    "y": 40,
+    "wires": []
+  },
+  {
+    "id": "ui-gauge-hum",
+    "type": "ui_gauge",
+    "z": "flow-smartfarm",
+    "name": "Humidity Gauge",
+    "group": "ui-group-main",
+    "order": 2,
+    "width": 2,
+    "height": 3,
+    "gtype": "gage",
+    "title": "湿度",
+    "label": "%",
+    "format": "{{value}}",
+    "min": 0,
+    "max": "100",
+    "colors": [
+      "#d9534f",
+      "#f0ad4e",
+      "#28a745"
+    ],
+    "seg1": "30",
+    "seg2": "70",
+    "className": "",
+    "x": 980,
+    "y": 80,
+    "wires": []
+  },
+  {
+    "id": "ui-gauge-soil",
+    "type": "ui_gauge",
+    "z": "flow-smartfarm",
+    "name": "Soil Gauge",
+    "group": "ui-group-main",
+    "order": 3,
+    "width": 2,
+    "height": 3,
+    "gtype": "gage",
+    "title": "土壤湿度",
+    "label": "%",
+    "format": "{{value}}",
+    "min": 0,
+    "max": "100",
+    "colors": [
+      "#d9534f",
+      "#f0ad4e",
+      "#28a745"
+    ],
+    "seg1": "30",
+    "seg2": "70",
+    "className": "",
+    "x": 980,
+    "y": 120,
+    "wires": []
+  },
+  {
+    "id": "ui-gauge-light",
+    "type": "ui_gauge",
+    "z": "flow-smartfarm",
+    "name": "Light Gauge",
+    "group": "ui-group-main",
+    "order": 4,
+    "width": 2,
+    "height": 3,
+    "gtype": "gage",
+    "title": "光照强度",
+    "label": "lx",
+    "format": "{{value}}",
+    "min": 0,
+    "max": "100",
+    "colors": [
+      "#6c757d",
+      "#17a2b8",
+      "#ffc107"
+    ],
+    "seg1": "30",
+    "seg2": "70",
+    "className": "",
+    "x": 980,
+    "y": 160,
+    "wires": []
+  },
+  {
+    "id": "ui-gauge-rain",
+    "type": "ui_gauge",
+    "z": "flow-smartfarm",
+    "name": "Rain Gauge",
+    "group": "ui-group-main",
+    "order": 5,
+    "width": 2,
+    "height": 3,
+    "gtype": "gage",
+    "title": "降雨状态",
+    "label": "%",
+    "format": "{{value}}",
+    "min": 0,
+    "max": "100",
+    "colors": [
+      "#28a745",
+      "#17a2b8",
+      "#2c7be5"
+    ],
+    "seg1": "30",
+    "seg2": "70",
+    "className": "",
+    "x": 980,
+    "y": 200,
+    "wires": []
+  },
+  {
+    "id": "ui-text-pump",
+    "type": "ui_text",
+    "z": "flow-smartfarm",
+    "group": "ui-group-status",
+    "order": 1,
+    "width": 4,
+    "height": 1,
+    "name": "Pump Text",
+    "label": "水泵状态",
+    "format": "{{msg.payload}}",
+    "layout": "row-spread",
+    "style": false,
+    "font": "",
+    "fontSize": 16,
+    "color": "#111111",
+    "wrapText": false,
+    "className": "",
+    "x": 980,
+    "y": 260,
+    "wires": []
+  },
+  {
+    "id": "ui-text-alarm",
+    "type": "ui_text",
+    "z": "flow-smartfarm",
+    "group": "ui-group-status",
+    "order": 2,
+    "width": 4,
+    "height": 1,
+    "name": "Alarm Text",
+    "label": "报警状态",
+    "format": "{{msg.payload}}",
+    "layout": "row-spread",
+    "style": false,
+    "font": "",
+    "fontSize": 16,
+    "color": "#111111",
+    "wrapText": false,
+    "className": "",
+    "x": 980,
+    "y": 300,
+    "wires": []
+  },
+  {
+    "id": "ui-text-status",
+    "type": "ui_text",
+    "z": "flow-smartfarm",
+    "group": "ui-group-status",
+    "order": 3,
+    "width": 4,
+    "height": 1,
+    "name": "Status Text",
+    "label": "最后更新时间",
+    "format": "{{msg.payload}}",
+    "layout": "row-spread",
+    "style": false,
+    "font": "",
+    "fontSize": 16,
+    "color": "#111111",
+    "wrapText": false,
+    "className": "",
+    "x": 980,
+    "y": 340,
+    "wires": []
+  },
+  {
+    "id": "emqx-broker",
+    "type": "mqtt-broker",
+    "name": "EMQX Public",
+    "broker": "broker.emqx.io",
+    "port": "1883",
+    "clientid": "",
+    "autoConnect": true,
+    "usetls": false,
+    "protocolVersion": "4",
+    "keepalive": "60",
+    "cleansession": true,
+    "birthTopic": "",
+    "birthQos": "0",
+    "birthRetain": "false",
+    "birthPayload": "",
+    "closeTopic": "",
+    "closeQos": "0",
+    "closeRetain": "false",
+    "closePayload": "",
+    "willTopic": "",
+    "willQos": "0",
+    "willRetain": "false",
+    "willPayload": ""
+  },
+  {
+    "id": "ui-tab-main",
+    "type": "ui_tab",
+    "name": "SmartFarm",
+    "icon": "dashboard",
+    "disabled": false,
+    "hidden": false
+  },
+  {
+    "id": "ui-group-main",
+    "type": "ui_group",
+    "name": "实时数据",
+    "tab": "ui-tab-main",
+    "order": 1,
+    "disp": true,
+    "width": "12",
+    "collapse": false
+  },
+  {
+    "id": "ui-group-status",
+    "type": "ui_group",
+    "name": "系统状态",
+    "tab": "ui-tab-main",
+    "order": 2,
+    "disp": true,
+    "width": "12",
+    "collapse": false
+  },
+  {
+    "id": "ui-group-chart",
+    "type": "ui_group",
+    "name": "趋势折线图",
+    "tab": "ui-tab-main",
+    "order": 3,
+    "disp": true,
+    "width": "12",
+    "collapse": false
+  },
+  {
+    "id": "ui-group-history",
+    "type": "ui_group",
+    "name": "最近10条数据",
+    "tab": "ui-tab-main",
+    "order": 4,
+    "disp": true,
+    "width": "12",
+    "collapse": false
+  },
+  {
+    "id": "ui-chart-history",
+    "type": "ui_chart",
+    "z": "flow-smartfarm",
+    "name": "History Chart",
+    "group": "ui-group-chart",
+    "order": 1,
+    "width": 12,
+    "height": 5,
+    "label": "环境数据实时趋势",
+    "chartType": "line",
+    "legend": "true",
+    "xformat": "HH:mm:ss",
+    "interpolate": "linear",
+    "nodata": "等待 MQTT 数据...",
+    "dot": false,
+    "yMin": "0",
+    "yMax": "100",
+    "removeOlder": 10,
+    "removeOlderPoints": "",
+    "removeOlderUnit": "60",
+    "cutout": 0,
+    "useOneColor": false,
+    "colors": [
+      "#17a2b8",
+      "#28a745",
+      "#f0ad4e",
+      "#6c757d",
+      "#2c7be5",
+      "#d9534f",
+      "#6610f2",
+      "#20c997",
+      "#fd7e14"
+    ],
+    "outputs": 1,
+    "useDifferentColor": false,
+    "className": "",
+    "x": 980,
+    "y": 420,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "ui-template-history",
+    "type": "ui_template",
+    "z": "flow-smartfarm",
+    "group": "ui-group-history",
+    "name": "Recent 10 Records",
+    "order": 1,
+    "width": 12,
+    "height": 5,
+    "format": "<style>\n.smartfarm-table{width:100%;border-collapse:collapse;font-size:14px;}\n.smartfarm-table th,.smartfarm-table td{padding:8px 10px;border-bottom:1px solid #e5e7eb;text-align:center;}\n.smartfarm-table th{background:#f7fafc;color:#2d3748;font-weight:600;}\n.smartfarm-table tr:nth-child(even){background:#fbfdff;}\n.smartfarm-badge-ok{color:#1f7a3f;font-weight:600;}\n.smartfarm-badge-alert{color:#c53030;font-weight:600;}\n</style>\n<table class=\"smartfarm-table\">\n  <thead>\n    <tr><th>时间</th><th>温度(℃)</th><th>湿度(%)</th><th>土壤(%)</th><th>光照(lx)</th><th>降雨(%)</th><th>水泵</th><th>报警</th></tr>\n  </thead>\n  <tbody>\n    <tr ng-repeat=\"r in msg.payload\">\n      <td>{{r.time}}</td><td>{{r.temp}}</td><td>{{r.hum}}</td><td>{{r.soil}}</td><td>{{r.light}}</td><td>{{r.rain}}</td>\n      <td>{{r.pump ? '开启' : '关闭'}}</td>\n      <td ng-class=\"r.alarm ? 'smartfarm-badge-alert' : 'smartfarm-badge-ok'\">{{r.alarm ? '异常' : '正常'}}</td>\n    </tr>\n  </tbody>\n</table>",
+    "storeOutMessages": true,
+    "fwdInMessages": true,
+    "resendOnRefresh": true,
+    "templateScope": "local",
+    "className": "",
+    "x": 990,
+    "y": 500,
+    "wires": [
+      []
+    ]
+  }
+]

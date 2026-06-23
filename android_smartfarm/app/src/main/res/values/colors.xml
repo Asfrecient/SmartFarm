@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="smartfarm_primary">#1F6F43</color>
+    <color name="smartfarm_primary_dark">#174E33</color>
+    <color name="smartfarm_surface">#F4F7F3</color>
+    <color name="smartfarm_on_surface">#1E2F25</color>
+    <color name="smartfarm_muted">#7A847D</color>
+    <color name="smartfarm_nav_active_bg">#DFF0E6</color>
+</resources>
