@@ -14,6 +14,8 @@ class DashboardFragment : Fragment() {
     private var _binding: FragmentDashboardBinding? = null
     private val binding get() = _binding!!
     private var latest: SensorData? = null
+    private var listener: PumpControlListener? = null
+    private var suppressPumpSwitchCallback = false
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -21,6 +23,14 @@ class DashboardFragment : Fragment() {
         savedInstanceState: Bundle?
     ): View {
         _binding = FragmentDashboardBinding.inflate(inflater, container, false)
+        binding.pumpControlSwitch.setOnCheckedChangeListener { _, isChecked ->
+            if (!suppressPumpSwitchCallback) {
+                listener?.onPumpCommand(if (isChecked) PumpCommand.ON else PumpCommand.OFF)
+            }
+        }
+        binding.pumpAutoButton.setOnClickListener {
+            listener?.onPumpCommand(PumpCommand.AUTO)
+        }
         render(latest)
         return binding.root
     }
@@ -52,9 +62,22 @@ class DashboardFragment : Fragment() {
         binding.rainValue.text = "降雨 ${value.rain}%"
         binding.pumpValue.text = if (value.pump > 0) "水泵 开启" else "水泵 关闭"
         binding.alarmValue.text = if (value.alarm > 0) "告警 报警" else "告警 正常"
+        binding.pumpModeValue.text = if (value.pumpManual > 0) "当前：手动模式" else "当前：自动模式"
+        suppressPumpSwitchCallback = true
+        binding.pumpControlSwitch.isChecked = value.pump > 0
+        suppressPumpSwitchCallback = false
         binding.rainValue.setTextColor(if (value.rain >= 80) Color.parseColor("#0D5C8A") else Color.parseColor("#46715F"))
         binding.pumpValue.setTextColor(if (value.pump > 0) Color.parseColor("#1F7A39") else Color.parseColor("#6E7B72"))
         binding.alarmValue.setTextColor(if (value.alarm > 0) Color.parseColor("#B3261E") else Color.parseColor("#2E6C3F"))
+    }
+
+    fun setPumpControlListener(listener: PumpControlListener) {
+        this.listener = listener
+    }
+
+    fun setPumpCommandStatus(text: String) {
+        _binding ?: return
+        binding.pumpCommandStatus.text = text
     }
 
     private fun timeOf(timestamp: Long): String {
@@ -70,4 +93,8 @@ class DashboardFragment : Fragment() {
             return DashboardFragment().apply { latest = data }
         }
     }
+}
+
+interface PumpControlListener {
+    fun onPumpCommand(command: PumpCommand)
 }

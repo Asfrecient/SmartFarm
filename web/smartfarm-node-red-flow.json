@@ -48,8 +48,8 @@
     "type": "function",
     "z": "flow-smartfarm",
     "name": "Prepare Metrics",
-    "func": "const p = msg.payload || {};\nconst now = new Date();\nconst row = {\n  time: now.toLocaleTimeString(),\n  temp: Number(p.temp ?? 0),\n  hum: Number(p.hum ?? 0),\n  soil: Number(p.soil ?? 0),\n  light: Number(p.light ?? 0),\n  rain: Number(p.rain ?? 0),\n  pump: Number(p.pump ?? 0),\n  alarm: Number(p.alarm ?? 0)\n};\nlet history = flow.get('smartfarm_history') || [];\nhistory.unshift(row);\nhistory = history.slice(0, 10);\nflow.set('smartfarm_history', history);\nconst make = (payload) => ({ payload });\nconst chartMessages = [\n  { topic: '温度', payload: row.temp },\n  { topic: '湿度', payload: row.hum },\n  { topic: '土壤湿度', payload: row.soil },\n  { topic: '光照强度', payload: row.light },\n  { topic: '降雨状态', payload: row.rain }\n];\nreturn [\n  make(row.temp),\n  make(row.hum),\n  make(row.soil),\n  make(row.light),\n  make(row.rain),\n  make(row.pump ? '水泵：开启' : '水泵：关闭'),\n  make(row.alarm ? '报警：异常' : '报警：正常'),\n  make('MQTT: ' + row.time),\n  chartMessages,\n  make(history)\n];",
-    "outputs": 10,
+    "func": "const p = msg.payload || {};\nconst now = new Date();\nconst row = {\n  time: now.toLocaleTimeString(),\n  temp: Number(p.temp ?? 0),\n  hum: Number(p.hum ?? 0),\n  soil: Number(p.soil ?? 0),\n  light: Number(p.light ?? 0),\n  rain: Number(p.rain ?? 0),\n  pump: Number(p.pump ?? 0),\n  pumpManual: Number(p.pumpManual ?? 0),\n  alarm: Number(p.alarm ?? 0)\n};\nlet history = flow.get('smartfarm_history') || [];\nhistory.unshift(row);\nhistory = history.slice(0, 10);\nflow.set('smartfarm_history', history);\nconst make = (payload) => ({ payload });\nconst chartMessages = [\n  { topic: '温度', payload: row.temp },\n  { topic: '湿度', payload: row.hum },\n  { topic: '土壤湿度', payload: row.soil },\n  { topic: '光照强度', payload: row.light },\n  { topic: '降雨状态', payload: row.rain }\n];\nreturn [\n  make(row.temp),\n  make(row.hum),\n  make(row.soil),\n  make(row.light),\n  make(row.rain),\n  make(row.pump ? '水泵：开启' : '水泵：关闭'),\n  make(row.alarm ? '报警：异常' : '报警：正常'),\n  make('MQTT: ' + row.time),\n  chartMessages,\n  make(history),\n  make(row.pumpManual ? '当前模式：手动控制' : '当前模式：自动控制')\n];",
+    "outputs": 11,
     "noerr": 0,
     "initialize": "",
     "finalize": "",
@@ -86,6 +86,9 @@
       ],
       [
         "ui-template-history"
+      ],
+      [
+        "ui-text-pump-mode"
       ]
     ]
   },
@@ -291,6 +294,181 @@
     "wires": []
   },
   {
+    "id": "ui-text-pump-mode",
+    "type": "ui_text",
+    "z": "flow-smartfarm",
+    "group": "ui-group-status",
+    "order": 4,
+    "width": 4,
+    "height": 1,
+    "name": "Pump Mode Text",
+    "label": "控制模式",
+    "format": "{{msg.payload}}",
+    "layout": "row-spread",
+    "style": false,
+    "font": "",
+    "fontSize": 16,
+    "color": "#111111",
+    "wrapText": false,
+    "className": "",
+    "x": 990,
+    "y": 380,
+    "wires": []
+  },
+  {
+    "id": "inject-pump-on",
+    "type": "inject",
+    "z": "flow-smartfarm",
+    "name": "开泵命令",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "payload": "{\"pump\":1}",
+    "payloadType": "json",
+    "x": 190,
+    "y": 560,
+    "wires": [
+      [
+        "function-control-payload",
+        "ui-toast-control"
+      ]
+    ]
+  },
+  {
+    "id": "inject-pump-off",
+    "type": "inject",
+    "z": "flow-smartfarm",
+    "name": "关泵命令",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "payload": "{\"pump\":0}",
+    "payloadType": "json",
+    "x": 190,
+    "y": 600,
+    "wires": [
+      [
+        "function-control-payload",
+        "ui-toast-control"
+      ]
+    ]
+  },
+  {
+    "id": "inject-pump-auto",
+    "type": "inject",
+    "z": "flow-smartfarm",
+    "name": "恢复自动",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "payload": "{\"pump\":\"auto\"}",
+    "payloadType": "json",
+    "x": 190,
+    "y": 640,
+    "wires": [
+      [
+        "function-control-payload",
+        "ui-toast-control"
+      ]
+    ]
+  },
+  {
+    "id": "function-control-payload",
+    "type": "function",
+    "z": "flow-smartfarm",
+    "name": "控制命令转 MQTT 字符串",
+    "func": "const p = msg.payload;\nlet command = null;\nif (typeof p === 'object' && p !== null) {\n  if (p.pump === 1 || p.pump === 0 || p.pump === 'auto') {\n    command = { pump: p.pump };\n  }\n} else if (typeof p === 'string') {\n  const trimmed = p.trim();\n  if (trimmed === 'P1' || trimmed === 'P0' || trimmed === 'PA') {\n    msg.payload = trimmed;\n    msg.topic = 'smartfarm/control';\n    return msg;\n  }\n  try {\n    const parsed = JSON.parse(trimmed);\n    if (parsed && (parsed.pump === 1 || parsed.pump === 0 || parsed.pump === 'auto')) {\n      command = { pump: parsed.pump };\n    }\n  } catch (e) {\n    node.warn('控制命令不是有效 JSON：' + trimmed);\n  }\n}\nif (!command) {\n  node.warn('控制命令无效，已拦截：' + JSON.stringify(p));\n  return null;\n}\nmsg.payload = JSON.stringify(command);\nmsg.topic = 'smartfarm/control';\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 450,
+    "y": 540,
+    "wires": [
+      [
+        "mqtt-out-control"
+      ]
+    ]
+  },
+  {
+    "id": "mqtt-out-control",
+    "type": "mqtt out",
+    "z": "flow-smartfarm",
+    "name": "Pump Control Out",
+    "topic": "smartfarm/control",
+    "qos": "0",
+    "retain": "false",
+    "respTopic": "",
+    "contentType": "",
+    "userProps": "",
+    "correl": "",
+    "expiry": "",
+    "broker": "emqx-broker",
+    "x": 470,
+    "y": 600,
+    "wires": []
+  },
+  {
+    "id": "ui-toast-control",
+    "type": "function",
+    "z": "flow-smartfarm",
+    "name": "控制提示",
+    "func": "const p = msg.payload || {};\nlet text = '已发送控制命令';\nif (p.pump === 1) {\n  text = '已发送：手动开启水泵';\n} else if (p.pump === 0) {\n  text = '已发送：手动关闭水泵';\n} else if (p.pump === 'auto') {\n  text = '已发送：恢复自动控制';\n}\nmsg.payload = text;\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 460,
+    "y": 660,
+    "wires": [
+      [
+        "ui-notify-control"
+      ]
+    ]
+  },
+  {
+    "id": "ui-notify-control",
+    "type": "ui_toast",
+    "z": "flow-smartfarm",
+    "position": "top right",
+    "displayTime": "3",
+    "highlight": "",
+    "sendall": true,
+    "outputs": 0,
+    "ok": "确定",
+    "cancel": "",
+    "raw": false,
+    "className": "",
+    "topic": "",
+    "name": "控制通知",
+    "x": 710,
+    "y": 660,
+    "wires": []
+  },
+  {
     "id": "emqx-broker",
     "type": "mqtt-broker",
     "name": "EMQX Public",
@@ -344,11 +522,21 @@
     "collapse": false
   },
   {
+    "id": "ui-group-control",
+    "type": "ui_group",
+    "name": "水泵远程控制",
+    "tab": "ui-tab-main",
+    "order": 3,
+    "disp": true,
+    "width": "12",
+    "collapse": false
+  },
+  {
     "id": "ui-group-chart",
     "type": "ui_group",
     "name": "趋势折线图",
     "tab": "ui-tab-main",
-    "order": 3,
+    "order": 4,
     "disp": true,
     "width": "12",
     "collapse": false
@@ -358,10 +546,94 @@
     "type": "ui_group",
     "name": "最近10条数据",
     "tab": "ui-tab-main",
-    "order": 4,
+    "order": 5,
     "disp": true,
     "width": "12",
     "collapse": false
+  },
+  {
+    "id": "ui-button-pump-on",
+    "type": "ui_button",
+    "z": "flow-smartfarm",
+    "name": "Pump On Button",
+    "group": "ui-group-control",
+    "order": 1,
+    "width": 4,
+    "height": 1,
+    "passthru": false,
+    "label": "手动开启水泵",
+    "tooltip": "",
+    "color": "#ffffff",
+    "bgcolor": "#1f7a3f",
+    "className": "",
+    "icon": "play_arrow",
+    "payload": "{\"pump\":1}",
+    "payloadType": "json",
+    "topic": "",
+    "x": 200,
+    "y": 720,
+    "wires": [
+      [
+        "function-control-payload",
+        "ui-toast-control"
+      ]
+    ]
+  },
+  {
+    "id": "ui-button-pump-off",
+    "type": "ui_button",
+    "z": "flow-smartfarm",
+    "name": "Pump Off Button",
+    "group": "ui-group-control",
+    "order": 2,
+    "width": 4,
+    "height": 1,
+    "passthru": false,
+    "label": "手动关闭水泵",
+    "tooltip": "",
+    "color": "#ffffff",
+    "bgcolor": "#b3261e",
+    "className": "",
+    "icon": "stop",
+    "payload": "{\"pump\":0}",
+    "payloadType": "json",
+    "topic": "",
+    "x": 200,
+    "y": 760,
+    "wires": [
+      [
+        "function-control-payload",
+        "ui-toast-control"
+      ]
+    ]
+  },
+  {
+    "id": "ui-button-pump-auto",
+    "type": "ui_button",
+    "z": "flow-smartfarm",
+    "name": "Pump Auto Button",
+    "group": "ui-group-control",
+    "order": 3,
+    "width": 4,
+    "height": 1,
+    "passthru": false,
+    "label": "恢复自动控制",
+    "tooltip": "",
+    "color": "#ffffff",
+    "bgcolor": "#0d5c8a",
+    "className": "",
+    "icon": "autorenew",
+    "payload": "{\"pump\":\"auto\"}",
+    "payloadType": "json",
+    "topic": "",
+    "x": 200,
+    "y": 800,
+    "wires": [
+      [
+        "function-control-payload",
+        "ui-toast-control"
+      ]
+    ]
   },
   {
     "id": "ui-chart-history",

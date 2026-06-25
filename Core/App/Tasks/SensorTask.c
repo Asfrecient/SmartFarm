@@ -127,14 +127,17 @@ void StartSensorTask(void *argument) {
     farmState.soilMoisture = SoilMoisture_Get(); // 读取土壤湿度
     farmState.lightIntensity = Light_Get();     // 读取光照强度
     
-    // 根据土壤湿度自动控制水泵
-    // 当土壤湿度低于最低阈值时打开水泵，高于最低阈值时关闭水泵
-    if (farmState.soilMoisture < farmSafeRange.minSoilMoisture) {
-      // 土壤湿度低于最低阈值，打开水泵
-      // Pump_On();
+    // 自动模式根据土壤湿度控制水泵；手动模式保持远程命令指定的状态。
+    if (farmState.waterPumpManualMode > 0) {
+      if (farmState.waterPumpState > 0) {
+        Pump_On();
+      } else {
+        Pump_Off();
+      }
+    } else if (farmState.soilMoisture < farmSafeRange.minSoilMoisture) {
+      Pump_On();
       farmState.waterPumpState = 1;
     } else {
-      // 土壤湿度高于或等于最低阈值，关闭水泵
       Pump_Off();
       farmState.waterPumpState = 0;
     }

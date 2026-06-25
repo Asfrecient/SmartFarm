@@ -7,6 +7,7 @@ data class SensorData(
     val light: Int = 0,
     val rain: Int = 0,
     val pump: Int = 0,
+    val pumpManual: Int = 0,
     val alarm: Int = 0,
     val timestamp: Long = System.currentTimeMillis()
 )

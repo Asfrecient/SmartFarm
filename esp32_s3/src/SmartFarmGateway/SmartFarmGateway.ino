@@ -7,7 +7,8 @@
 
 static const char* kBrokerHost = "broker.emqx.io";
 static const uint16_t kBrokerPort = 1883;
-static const char* kTopic = "smartfarm/data";
+static const char* kDataTopic = "smartfarm/data";
+static const char* kControlTopic = "smartfarm/control";
 
 WiFiClient wifiClient;
 PubSubClient mqttClient(wifiClient);
@@ -16,7 +17,8 @@ void setup() {
   Serial.begin(115200);
   LoraGateway_Init(Serial2, 17, 18, 9600);
   WifiManager_Init(mqttClient, kBrokerHost, kBrokerPort, "SmartFarm-ESP32-S3");
-  MqttClient_SetTopic(kTopic);
+  MqttClient_SetTopic(kDataTopic);
+  MqttClient_SetControlTopic(kControlTopic);
   mqttClient.setBufferSize(512);
 }
 

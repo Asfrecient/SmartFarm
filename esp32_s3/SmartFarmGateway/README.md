@@ -39,3 +39,4 @@ MQTT 已连接。
 ```
 
 收到 LoRa 数据后，会打印数据内容，并发布到 MQTT 主题 `smartfarm/data`。
+网关还会订阅 MQTT 主题 `smartfarm/control`，收到 Android 发来的 `{"pump":1}`、`{"pump":0}` 或 `{"pump":"auto"}` 后，通过 LoRa 下发给 STM32。

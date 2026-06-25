@@ -38,6 +38,7 @@ void WifiManager_Loop(PubSubClient& client) {
     return;
   }
   if (client.connect(kClientId)) {
+    MqttClient_SubscribeControl();
     client.loop();
   }
 }

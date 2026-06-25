@@ -92,6 +92,44 @@ class MQTTManager(
         }
     }
 
+    fun publishPumpCommand(command: PumpCommand, onResult: (Boolean) -> Unit = {}) {
+        val payload = when (command) {
+            PumpCommand.ON -> JSONObject().put("pump", 1).toString()
+            PumpCommand.OFF -> JSONObject().put("pump", 0).toString()
+            PumpCommand.AUTO -> JSONObject().put("pump", "auto").toString()
+        }
+        publishControl(payload, onResult)
+    }
+
+    private fun publishControl(payload: String, onResult: (Boolean) -> Unit) {
+        if (!client.isConnected) {
+            postStatus("MQTT 未连接，控制命令未发送")
+            onResult(false)
+            return
+        }
+
+        try {
+            val message = MqttMessage(payload.toByteArray(Charsets.UTF_8)).apply {
+                qos = 0
+                isRetained = false
+            }
+            client.publish(MQTTConfig.CONTROL_TOPIC, message, null, object : IMqttActionListener {
+                override fun onSuccess(asyncActionToken: IMqttToken?) {
+                    postStatus("控制命令已发送")
+                    mainHandler.post { onResult(true) }
+                }
+
+                override fun onFailure(asyncActionToken: IMqttToken?, exception: Throwable?) {
+                    postStatus("控制命令发送失败")
+                    mainHandler.post { onResult(false) }
+                }
+            })
+        } catch (_: MqttException) {
+            postStatus("控制命令发送异常")
+            onResult(false)
+        }
+    }
+
     fun close() {
         try {
             if (client.isConnected) {
@@ -119,6 +157,7 @@ class MQTTManager(
             light = json.optInt("light", 0),
             rain = json.optInt("rain", 0),
             pump = json.optInt("pump", 0),
+            pumpManual = json.optInt("pumpManual", 0),
             alarm = json.optInt("alarm", 0),
             timestamp = System.currentTimeMillis()
         )
@@ -127,4 +166,10 @@ class MQTTManager(
     fun formatTime(ts: Long = System.currentTimeMillis()): String {
         return SimpleDateFormat("HH:mm:ss", Locale.CHINA).format(Date(ts))
     }
+}
+
+enum class PumpCommand {
+    ON,
+    OFF,
+    AUTO
 }

@@ -33,7 +33,8 @@ typedef struct {
   uint16_t soilMoisture;   // 土壤湿度（单位：百分比，0-100）
   uint16_t lightIntensity; // 光照强度（单位：勒克斯 lx）
 
-  uint8_t waterPumpState;  // 水泵状态：0-关闭, 1-开启
+  uint8_t waterPumpState;      // 水泵状态：0-关闭, 1-开启
+  uint8_t waterPumpManualMode; // 水泵控制模式：0-自动, 1-手动
 } FarmState;
 
 /**

@@ -44,6 +44,11 @@ class MainActivity : AppCompatActivity() {
             true
         }
 
+        dashboardFragment.setPumpControlListener(object : PumpControlListener {
+            override fun onPumpCommand(command: PumpCommand) {
+                sendPumpCommand(command)
+            }
+        })
         startDemoMode()
         startMqttMode()
 
@@ -83,9 +88,21 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun seedDemoData() {
-        store.add(SensorData(temp = 25.6, hum = 68.0, soil = 42, light = 520, rain = 0, pump = 0, alarm = 0))
-        store.add(SensorData(temp = 26.1, hum = 66.4, soil = 39, light = 540, rain = 0, pump = 0, alarm = 0))
-        store.add(SensorData(temp = 27.0, hum = 64.8, soil = 36, light = 560, rain = 0, pump = 1, alarm = 0))
+        store.add(SensorData(temp = 25.6, hum = 68.0, soil = 42, light = 520, rain = 0, pump = 0, pumpManual = 0, alarm = 0))
+        store.add(SensorData(temp = 26.1, hum = 66.4, soil = 39, light = 540, rain = 0, pump = 0, pumpManual = 0, alarm = 0))
+        store.add(SensorData(temp = 27.0, hum = 64.8, soil = 36, light = 560, rain = 0, pump = 1, pumpManual = 1, alarm = 0))
+    }
+
+    private fun sendPumpCommand(command: PumpCommand) {
+        val text = when (command) {
+            PumpCommand.ON -> "正在发送：手动开启水泵"
+            PumpCommand.OFF -> "正在发送：手动关闭水泵"
+            PumpCommand.AUTO -> "正在发送：恢复自动控制"
+        }
+        dashboardFragment.setPumpCommandStatus(text)
+        mqttManager?.publishPumpCommand(command) { success ->
+            dashboardFragment.setPumpCommandStatus(if (success) "命令已发送，等待设备状态回传" else "命令发送失败，请检查 MQTT 连接")
+        } ?: dashboardFragment.setPumpCommandStatus("MQTT 未初始化，命令未发送")
     }
 
     private fun renderStatus() {
