@@ -14,7 +14,9 @@ WiFiClient wifiClient;
 PubSubClient mqttClient(wifiClient);
 
 static HardwareSerial& loraSerial = Serial2;
-static String buffer;
+static String frame;
+static bool inFrame = false;
+static int braceDepth = 0;
 
 static void connectWiFi() {
   if (WiFi.status() == WL_CONNECTED) return;
@@ -84,6 +86,12 @@ static void forwardPayload(const String& payload) {
   }
 }
 
+static void resetFrame() {
+  frame = "";
+  inFrame = false;
+  braceDepth = 0;
+}
+
 void setup() {
   Serial.begin(115200);
   unsigned long serialStartMillis = millis();
@@ -103,6 +111,7 @@ void setup() {
   mqttClient.setBufferSize(512);
   Serial.print("MQTT 主题：");
   Serial.println(MQTT_TOPIC);
+  frame.reserve(256);
 }
 
 void loop() {
@@ -112,14 +121,29 @@ void loop() {
 
   while (loraSerial.available()) {
     char ch = (char)loraSerial.read();
-    if (ch == '\n') {
-      forwardPayload(buffer);
-      buffer = "";
-    } else if (ch != '\r') {
-      buffer += ch;
-      if (buffer.length() > 240) {
-        Serial.println("LoRa 缓冲区超过 240 字节，已清空。");
-        buffer = "";
+    if (!inFrame) {
+      if (ch == '{') {
+        inFrame = true;
+        braceDepth = 1;
+        frame = "{";
+      }
+      continue;
+    }
+
+    if (frame.length() > 240) {
+      Serial.println("LoRa 帧超过 240 字节，已丢弃。");
+      resetFrame();
+      continue;
+    }
+
+    frame += ch;
+    if (ch == '{') {
+      braceDepth++;
+    } else if (ch == '}') {
+      braceDepth--;
+      if (braceDepth == 0) {
+        forwardPayload(frame);
+        resetFrame();
       }
     }
   }
