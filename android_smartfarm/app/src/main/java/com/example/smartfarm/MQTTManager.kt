@@ -1,6 +1,8 @@
 package com.example.smartfarm
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
 import android.os.Handler
 import android.os.Looper
 import org.eclipse.paho.client.mqttv3.IMqttActionListener
@@ -22,7 +24,11 @@ class MQTTManager(
     private val onMessage: (SensorData) -> Unit,
     private val onStatus: (String) -> Unit
 ) {
+    private val appContext = context.applicationContext
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val retryHandler = Handler(Looper.getMainLooper())
+    private val connectivityManager =
+        appContext.getSystemService(ConnectivityManager::class.java)
     private val clientId = "${MQTTConfig.CLIENT_ID}-${System.currentTimeMillis()}"
     private val client = MqttAsyncClient(MQTTConfig.BROKER_URI, clientId, MemoryPersistence())
     private val options = MqttConnectOptions().apply {
@@ -30,10 +36,30 @@ class MQTTManager(
         isCleanSession = true
         connectionTimeout = 20
         keepAliveInterval = 30
+        serverURIs = MQTTConfig.BROKER_URIS
+    }
+    @Volatile private var connectInFlight = false
+    @Volatile private var closed = false
+    private var retryDelayMs = 2000L
+    private val retryRunnable = Runnable {
+        if (!closed && !client.isConnected && !connectInFlight) {
+            connect()
+        }
+    }
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            android.util.Log.d("SmartFarmMQTT", "[NETWORK_AVAILABLE] reconnecting")
+            if (!client.isConnected && !connectInFlight) {
+                scheduleReconnect(0)
+            }
+        }
+
+        override fun onLost(network: Network) {
+            android.util.Log.d("SmartFarmMQTT", "[NETWORK_LOST]")
+        }
     }
 
     init {
-        context.applicationContext
         client.setCallback(object : MqttCallbackExtended {
             override fun connectComplete(reconnect: Boolean, serverURI: String?) {
                 android.util.Log.d("SmartFarmMQTT", "[CONNECT_COMPLETE] reconnect=$reconnect serverURI=$serverURI")
@@ -58,6 +84,12 @@ class MQTTManager(
 
             override fun deliveryComplete(token: IMqttDeliveryToken?) = Unit
         })
+
+        try {
+            connectivityManager?.registerDefaultNetworkCallback(networkCallback)
+        } catch (exception: Exception) {
+            android.util.Log.w("SmartFarmMQTT", "[NETWORK_CALLBACK_FAIL] ${exception.toDebugText()}")
+        }
     }
 
     fun connect(onConnected: (Boolean) -> Unit = {}) {
@@ -65,27 +97,36 @@ class MQTTManager(
             onConnected(true)
             return
         }
+        if (connectInFlight) {
+            return
+        }
 
+        connectInFlight = true
         postStatus("MQTT 正在连接... ${MQTTConfig.BROKER_URI}")
-        android.util.Log.d("SmartFarmMQTT", "[CONNECT] broker=${MQTTConfig.BROKER_URI} clientId=$clientId")
+        android.util.Log.d("SmartFarmMQTT", "[CONNECT] brokerCandidates=${MQTTConfig.BROKER_URIS.joinToString()} clientId=$clientId")
         try {
             client.connect(options, null, object : IMqttActionListener {
                 override fun onSuccess(asyncActionToken: IMqttToken?) {
+                    connectInFlight = false
+                    retryDelayMs = 2000L
                     android.util.Log.d("SmartFarmMQTT", "[CONNECT_OK] broker=${MQTTConfig.BROKER_URI}")
                     postStatus("MQTT 已连接")
-                    subscribe()
                     onConnected(true)
                 }
 
                 override fun onFailure(asyncActionToken: IMqttToken?, exception: Throwable?) {
-                    android.util.Log.e("SmartFarmMQTT", "[CONNECT_FAIL] broker=${MQTTConfig.BROKER_URI} ${exception.toDebugText()}")
-                    postStatus("MQTT 连接失败${exception.toDebugText()}")
+                    connectInFlight = false
+                    android.util.Log.e("SmartFarmMQTT", "[CONNECT_FAIL] brokerCandidates=${MQTTConfig.BROKER_URIS.joinToString()} ${exception.toDebugText()}")
+                    postStatus("MQTT 连接失败${exception.toDebugText()}，稍后重试")
                     onConnected(false)
+                    scheduleReconnect()
                 }
             })
         } catch (exception: MqttException) {
+            connectInFlight = false
             postStatus("MQTT 连接异常${exception.toDebugText()}")
             onConnected(false)
+            scheduleReconnect()
         }
     }
 
@@ -98,6 +139,15 @@ class MQTTManager(
             android.util.Log.e("SmartFarmMQTT", "[SUBSCRIBE_FAIL] ${exception.toDebugText()}")
             postStatus("MQTT 订阅失败${exception.toDebugText()}")
         }
+    }
+
+    private fun scheduleReconnect(delayMs: Long = retryDelayMs) {
+        if (closed || client.isConnected || connectInFlight) return
+        retryHandler.removeCallbacks(retryRunnable)
+        android.util.Log.d("SmartFarmMQTT", "[RETRY_SCHEDULE] delayMs=$delayMs")
+        postStatus("MQTT 连接重试中，${delayMs / 1000} 秒后重连")
+        retryHandler.postDelayed(retryRunnable, delayMs)
+        retryDelayMs = (delayMs * 2).coerceAtMost(30_000L)
     }
 
     fun publishPumpCommand(command: PumpCommand, onResult: (Boolean) -> Unit = {}) {
@@ -139,6 +189,12 @@ class MQTTManager(
     }
 
     fun close() {
+        closed = true
+        retryHandler.removeCallbacksAndMessages(null)
+        try {
+            connectivityManager?.unregisterNetworkCallback(networkCallback)
+        } catch (_: Exception) {
+        }
         try {
             if (client.isConnected) {
                 client.disconnect()
