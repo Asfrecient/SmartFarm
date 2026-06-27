@@ -9,5 +9,7 @@ data class SensorData(
     val pump: Int = 0,
     val pumpManual: Int = 0,
     val alarm: Int = 0,
+    val rx: Long = 0L,
+    val cmd: Int = 0,
     val timestamp: Long = System.currentTimeMillis()
 )

@@ -3,6 +3,7 @@
 
     <application
         android:allowBackup="true"
+        android:usesCleartextTraffic="true"
         android:label="SmartFarm"
         android:supportsRtl="true"
         android:theme="@style/Theme.SmartFarm">

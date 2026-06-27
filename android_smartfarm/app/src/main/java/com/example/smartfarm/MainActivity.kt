@@ -15,6 +15,7 @@ class MainActivity : AppCompatActivity() {
     private var demoMode = true
     private var mqttStatus = "等待 MQTT 连接"
     private var lastUpdateTime = "--"
+    private var mqttConnected = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -63,8 +64,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startDemoMode() {
+        store.clear()
         seedDemoData()
         demoMode = true
+        mqttConnected = false
     }
 
     private fun startMqttMode() {
@@ -72,6 +75,7 @@ class MainActivity : AppCompatActivity() {
             context = this,
             onMessage = { data ->
                 demoMode = false
+                mqttConnected = true
                 mqttStatus = "MQTT 已接收数据"
                 lastUpdateTime = mqttManager?.formatTime(data.timestamp) ?: "--"
                 store.add(data)
@@ -81,6 +85,13 @@ class MainActivity : AppCompatActivity() {
             },
             onStatus = { status ->
                 mqttStatus = status
+                if (status.startsWith("MQTT 已连接")) {
+                    demoMode = false
+                    mqttConnected = true
+                    store.clear()
+                    dashboardFragment.render(null)
+                    historyFragment.render(emptyList())
+                }
                 renderStatus()
             }
         )
@@ -112,7 +123,7 @@ class MainActivity : AppCompatActivity() {
                 latestTime = lastUpdateTime,
                 dataMode = if (demoMode) "演示模式" else "在线模式",
                 dataCount = store.count(),
-                hasHardwareData = !demoMode
+                hasHardwareData = mqttConnected
             )
         )
     }

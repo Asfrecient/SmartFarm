@@ -28,7 +28,7 @@ class MQTTManager(
     private val options = MqttConnectOptions().apply {
         isAutomaticReconnect = true
         isCleanSession = true
-        connectionTimeout = 5
+        connectionTimeout = 20
         keepAliveInterval = 30
     }
 
@@ -36,19 +36,22 @@ class MQTTManager(
         context.applicationContext
         client.setCallback(object : MqttCallbackExtended {
             override fun connectComplete(reconnect: Boolean, serverURI: String?) {
+                android.util.Log.d("SmartFarmMQTT", "[CONNECT_COMPLETE] reconnect=$reconnect serverURI=$serverURI")
                 postStatus(if (reconnect) "MQTT 已重连" else "MQTT 已连接")
                 subscribe()
             }
 
             override fun connectionLost(cause: Throwable?) {
-                postStatus("MQTT 连接断开")
+                postStatus("MQTT 连接断开${cause.toDebugText()}")
             }
 
             override fun messageArrived(topic: String?, message: MqttMessage?) {
                 if (message == null) return
                 try {
+                    android.util.Log.d("SmartFarmMQTT", "[MESSAGE] topic=$topic payload=${message.toString()}")
                     postMessage(parse(message.toString()))
                 } catch (_: Exception) {
+                    android.util.Log.e("SmartFarmMQTT", "[MESSAGE_PARSE_FAIL] topic=$topic payload=${message.toString()}")
                     postStatus("MQTT 数据解析失败")
                 }
             }
@@ -63,22 +66,25 @@ class MQTTManager(
             return
         }
 
-        postStatus("MQTT 正在连接...")
+        postStatus("MQTT 正在连接... ${MQTTConfig.BROKER_URI}")
+        android.util.Log.d("SmartFarmMQTT", "[CONNECT] broker=${MQTTConfig.BROKER_URI} clientId=$clientId")
         try {
             client.connect(options, null, object : IMqttActionListener {
                 override fun onSuccess(asyncActionToken: IMqttToken?) {
+                    android.util.Log.d("SmartFarmMQTT", "[CONNECT_OK] broker=${MQTTConfig.BROKER_URI}")
                     postStatus("MQTT 已连接")
                     subscribe()
                     onConnected(true)
                 }
 
                 override fun onFailure(asyncActionToken: IMqttToken?, exception: Throwable?) {
-                    postStatus("MQTT 连接失败")
+                    android.util.Log.e("SmartFarmMQTT", "[CONNECT_FAIL] broker=${MQTTConfig.BROKER_URI} ${exception.toDebugText()}")
+                    postStatus("MQTT 连接失败${exception.toDebugText()}")
                     onConnected(false)
                 }
             })
-        } catch (_: MqttException) {
-            postStatus("MQTT 连接异常")
+        } catch (exception: MqttException) {
+            postStatus("MQTT 连接异常${exception.toDebugText()}")
             onConnected(false)
         }
     }
@@ -86,9 +92,11 @@ class MQTTManager(
     private fun subscribe() {
         if (!client.isConnected) return
         try {
+            android.util.Log.d("SmartFarmMQTT", "[SUBSCRIBE] topic=${MQTTConfig.TOPIC}")
             client.subscribe(MQTTConfig.TOPIC, 0)
-        } catch (_: MqttException) {
-            postStatus("MQTT 订阅失败")
+        } catch (exception: MqttException) {
+            android.util.Log.e("SmartFarmMQTT", "[SUBSCRIBE_FAIL] ${exception.toDebugText()}")
+            postStatus("MQTT 订阅失败${exception.toDebugText()}")
         }
     }
 
@@ -120,12 +128,12 @@ class MQTTManager(
                 }
 
                 override fun onFailure(asyncActionToken: IMqttToken?, exception: Throwable?) {
-                    postStatus("控制命令发送失败")
+                    postStatus("控制命令发送失败${exception.toDebugText()}")
                     mainHandler.post { onResult(false) }
                 }
             })
-        } catch (_: MqttException) {
-            postStatus("控制命令发送异常")
+        } catch (exception: MqttException) {
+            postStatus("控制命令发送异常${exception.toDebugText()}")
             onResult(false)
         }
     }
@@ -159,12 +167,23 @@ class MQTTManager(
             pump = json.optInt("pump", 0),
             pumpManual = json.optInt("pumpManual", 0),
             alarm = json.optInt("alarm", 0),
+            rx = json.optLong("rx", 0L),
+            cmd = json.optInt("cmd", 0),
             timestamp = System.currentTimeMillis()
         )
     }
 
     fun formatTime(ts: Long = System.currentTimeMillis()): String {
         return SimpleDateFormat("HH:mm:ss", Locale.CHINA).format(Date(ts))
+    }
+
+    private fun Throwable?.toDebugText(): String {
+        if (this == null) return ""
+        val type = javaClass.simpleName
+        val reason = if (this is MqttException) " reason=${reasonCode}" else ""
+        val messageText = message?.takeIf { it.isNotBlank() }?.let { " msg=$it" } ?: ""
+        val causeText = cause?.javaClass?.simpleName?.let { " cause=$it" } ?: ""
+        return "[$type$reason$messageText$causeText]"
     }
 }
 

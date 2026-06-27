@@ -111,11 +111,11 @@ class HistoryFragment : Fragment() {
     private fun renderTable(items: List<SensorData>) {
         binding.historyTable.removeAllViews()
         addTableRow(
-            listOf("时间", "温度", "湿度", "土壤", "雨量", "光照", "泵", "警"),
+            listOf("时间", "温度", "湿度", "土壤", "雨量", "光照", "泵", "模", "警", "rx", "cmd"),
             isHeader = true
         )
         if (items.isEmpty()) {
-            addTableRow(listOf("暂无数据", "-", "-", "-", "-", "-", "-", "-"))
+            addTableRow(listOf("暂无数据", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-"))
             return
         }
         items.forEach {
@@ -128,7 +128,10 @@ class HistoryFragment : Fragment() {
                     "${it.rain}%",
                     "${it.light}lx",
                     if (it.pump > 0) "开" else "关",
-                    if (it.alarm > 0) "报" else "正"
+                    if (it.pumpManual > 0) "手" else "自",
+                    if (it.alarm > 0) "报" else "正",
+                    "${it.rx}",
+                    "${it.cmd}"
                 )
             )
         }
@@ -147,8 +150,10 @@ class HistoryFragment : Fragment() {
                 gravity = if (index == 0) android.view.Gravity.START else android.view.Gravity.CENTER
                 minWidth = when (index) {
                     0 -> dp(78)
+                    9 -> dp(72)
+                    10 -> dp(42)
                     5 -> dp(66)
-                    else -> dp(58)
+                    else -> dp(52)
                 }
                 setPadding(dp(4), dp(6), dp(4), dp(6))
                 layoutParams = TableRow.LayoutParams(TableRow.LayoutParams.WRAP_CONTENT, TableRow.LayoutParams.WRAP_CONTENT)

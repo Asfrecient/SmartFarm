@@ -13,11 +13,8 @@ static String sPendingCommand;
 static uint8_t sPendingCommandRepeats = 0;
 static unsigned long sLastRxMillis = 0;
 static unsigned long sLastCommandMillis = 0;
-static unsigned long sNextCommandSendMillis = 0;
-static bool sDownlinkWindowOpen = false;
-static unsigned long sDownlinkWindowUntilMillis = 0;
-static bool sCommandSentInCurrentWindow = false;
 static int sPendingPumpTarget = -2;
+static bool sCommandSentForCurrentRequest = false;
 
 static String normalizePumpCommand(const char* payload) {
   String normalized = payload;
@@ -68,13 +65,13 @@ static void sendPendingCommand() {
   }
 
   unsigned long now = millis();
-  if (!sDownlinkWindowOpen) {
+  if (sCommandSentForCurrentRequest) {
     return;
   }
-  if (now > sDownlinkWindowUntilMillis) {
+  if (now - sLastRxMillis < 120UL) {
     return;
   }
-  if (sCommandSentInCurrentWindow || now < sNextCommandSendMillis || now - sLastRxMillis < 300UL) {
+  if (now - sLastCommandMillis < 150UL) {
     return;
   }
 
@@ -83,14 +80,11 @@ static void sendPendingCommand() {
   sSerial->flush();
   sPendingCommandRepeats--;
   sLastCommandMillis = now;
-  sCommandSentInCurrentWindow = true;
+  sCommandSentForCurrentRequest = true;
   if (sPendingCommandRepeats == 0) {
     sPendingCommand = "";
-    sDownlinkWindowOpen = false;
-    sDownlinkWindowUntilMillis = 0;
-    sNextCommandSendMillis = 0;
-    sCommandSentInCurrentWindow = false;
     sPendingPumpTarget = -2;
+    sCommandSentForCurrentRequest = false;
   }
 }
 
@@ -116,10 +110,7 @@ static bool forwardJson(PubSubClient& client, const String& json) {
       sPendingCommand = "";
       sPendingCommandRepeats = 0;
       sPendingPumpTarget = -2;
-      sDownlinkWindowOpen = false;
-      sDownlinkWindowUntilMillis = 0;
-      sNextCommandSendMillis = 0;
-      sCommandSentInCurrentWindow = false;
+      sCommandSentForCurrentRequest = false;
     }
   }
   return true;
@@ -152,11 +143,7 @@ void LoraGateway_Loop(PubSubClient& client) {
         bool validFrame = forwardJson(client, sFrame);
         resetFrame();
         if (validFrame && sPendingCommand.length() > 0 && sPendingCommandRepeats > 0) {
-          unsigned long now = millis();
-          sDownlinkWindowOpen = true;
-          sNextCommandSendMillis = now + 800UL;
-          sDownlinkWindowUntilMillis = now + 1800UL;
-          sCommandSentInCurrentWindow = false;
+          sCommandSentForCurrentRequest = false;
           sendPendingCommand();
         }
       }
@@ -184,10 +171,6 @@ bool LoraGateway_SendCommand(const char* payload) {
   }
   sPendingCommandRepeats = 8;
   sLastCommandMillis = 0;
-  sNextCommandSendMillis = 0;
-  sDownlinkWindowOpen = false;
-  sDownlinkWindowUntilMillis = 0;
-  sCommandSentInCurrentWindow = false;
   return true;
 }
 

@@ -4,6 +4,10 @@ class SensorStore {
     private val history = ArrayDeque<SensorData>()
     private val maxSize = 50
 
+    fun clear() {
+        history.clear()
+    }
+
     fun add(data: SensorData) {
         if (history.size >= maxSize) {
             history.removeFirst()

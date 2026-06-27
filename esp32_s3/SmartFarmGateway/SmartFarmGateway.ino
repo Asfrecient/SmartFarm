@@ -1,6 +1,8 @@
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 // 修改为当前可用的 WiFi；iPhone 热点建议打开“最大兼容性”。
 static const char* WIFI_SSID = "abc";
@@ -22,11 +24,11 @@ static String pendingCommand;
 static uint8_t pendingCommandRepeats = 0;
 static unsigned long lastLoraRxMillis = 0;
 static unsigned long lastCommandSendMillis = 0;
-static unsigned long nextCommandSendMillis = 0;
-static unsigned long downlinkWindowUntilMillis = 0;
-static bool commandSentInCurrentWindow = false;
 static int pendingPumpTarget = -2;
+static bool commandSentForCurrentRequest = false;
 static String serialCommandBuffer;
+static TaskHandle_t loraBridgeTaskHandle = nullptr;
+static portMUX_TYPE loraStateMux = portMUX_INITIALIZER_UNLOCKED;
 
 static String normalizePumpCommand(const String& command) {
   String normalized = command;
@@ -63,6 +65,7 @@ static void queuePumpCommand(const String& command) {
   if (command.length() == 0) {
     return;
   }
+  taskENTER_CRITICAL(&loraStateMux);
   pendingCommand = command;
   if (command.indexOf("\"pump\":1") >= 0) {
     pendingPumpTarget = 1;
@@ -73,12 +76,11 @@ static void queuePumpCommand(const String& command) {
   }
   pendingCommandRepeats = 8;
   lastCommandSendMillis = 0;
-  nextCommandSendMillis = 0;
-  downlinkWindowUntilMillis = 0;
-  commandSentInCurrentWindow = false;
+  commandSentForCurrentRequest = false;
+  taskEXIT_CRITICAL(&loraStateMux);
   Serial.print("控制命令已缓存：");
   Serial.println(pendingCommand);
-  Serial.println("等待下一帧 LoRa 上报结束后下发控制命令。");
+  Serial.println("等待 LoRa 静默窗口后下发控制命令。");
 }
 
 static void pollUsbSerialCommand() {
@@ -158,33 +160,47 @@ static void connectMQTT() {
 }
 
 static void sendPendingCommand() {
+  String commandToSend;
+  unsigned long now = millis();
+
+  taskENTER_CRITICAL(&loraStateMux);
   if (pendingCommand.length() == 0 || pendingCommandRepeats == 0) {
+    taskEXIT_CRITICAL(&loraStateMux);
     return;
   }
 
-  unsigned long now = millis();
-  if (now > downlinkWindowUntilMillis) {
+  if (commandSentForCurrentRequest) {
+    taskEXIT_CRITICAL(&loraStateMux);
     return;
   }
-  if (commandSentInCurrentWindow || now < nextCommandSendMillis || now - lastLoraRxMillis < 300UL) {
+  if (now - lastLoraRxMillis < 120UL) {
+    taskEXIT_CRITICAL(&loraStateMux);
     return;
   }
+  if (now - lastCommandSendMillis < 150UL) {
+    taskEXIT_CRITICAL(&loraStateMux);
+    return;
+  }
+
+  commandToSend = pendingCommand;
+  taskEXIT_CRITICAL(&loraStateMux);
 
   Serial.print("LoRa 下发控制命令：");
-  Serial.println(pendingCommand);
-  loraSerial.print(pendingCommand);
+  Serial.println(commandToSend);
+  loraSerial.print(commandToSend);
   loraSerial.print("\r\n");
   loraSerial.flush();
+
+  taskENTER_CRITICAL(&loraStateMux);
   pendingCommandRepeats--;
   lastCommandSendMillis = now;
-  commandSentInCurrentWindow = true;
+  commandSentForCurrentRequest = true;
   if (pendingCommandRepeats == 0) {
     pendingCommand = "";
-    downlinkWindowUntilMillis = 0;
-    nextCommandSendMillis = 0;
-    commandSentInCurrentWindow = false;
     pendingPumpTarget = -2;
+    commandSentForCurrentRequest = false;
   }
+  taskEXIT_CRITICAL(&loraStateMux);
 }
 
 static bool forwardPayload(const String& payload) {
@@ -210,8 +226,8 @@ static bool forwardPayload(const String& payload) {
 
   JsonVariant pumpValue = doc["pump"];
   JsonVariant pumpManualValue = doc["pumpManual"];
+  bool acknowledged = false;
   if (pendingPumpTarget != -2) {
-    bool acknowledged = false;
     if (pendingPumpTarget == -1) {
       acknowledged = pumpManualValue.is<int>() && pumpManualValue.as<int>() == 0;
     } else if (pumpValue.is<int>() && pumpManualValue.is<int>()) {
@@ -220,13 +236,15 @@ static bool forwardPayload(const String& payload) {
     if (acknowledged) {
       Serial.print("控制命令已收到状态确认，停止重试：");
       Serial.println(pendingCommand);
-      pendingCommand = "";
-      pendingCommandRepeats = 0;
-      pendingPumpTarget = -2;
-      downlinkWindowUntilMillis = 0;
-      nextCommandSendMillis = 0;
-      commandSentInCurrentWindow = false;
     }
+  }
+  if (acknowledged) {
+    taskENTER_CRITICAL(&loraStateMux);
+    pendingCommand = "";
+    pendingCommandRepeats = 0;
+    pendingPumpTarget = -2;
+    commandSentForCurrentRequest = false;
+    taskEXIT_CRITICAL(&loraStateMux);
   }
   return true;
 }
@@ -260,6 +278,50 @@ static void resetFrame() {
   braceDepth = 0;
 }
 
+static void LoraBridgeTask(void *argument) {
+  (void)argument;
+  for (;;) {
+    while (loraSerial.available()) {
+      char ch = (char)loraSerial.read();
+      lastLoraRxMillis = millis();
+      if (!inFrame) {
+        if (ch == '{') {
+          inFrame = true;
+          braceDepth = 1;
+          frame = "{";
+        }
+        continue;
+      }
+
+      if (frame.length() > 240) {
+        Serial.println("LoRa 帧超过 240 字节，已丢弃。");
+        resetFrame();
+        continue;
+      }
+
+      frame += ch;
+      if (ch == '{') {
+        braceDepth++;
+      } else if (ch == '}') {
+        braceDepth--;
+        if (braceDepth == 0) {
+          bool validFrame = forwardPayload(frame);
+          resetFrame();
+          if (validFrame && pendingCommand.length() > 0 && pendingCommandRepeats > 0) {
+            taskENTER_CRITICAL(&loraStateMux);
+            commandSentForCurrentRequest = false;
+            taskEXIT_CRITICAL(&loraStateMux);
+            sendPendingCommand();
+          }
+        }
+      }
+    }
+
+    sendPendingCommand();
+    vTaskDelay(1);
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   unsigned long serialStartMillis = millis();
@@ -283,6 +345,7 @@ void setup() {
   Serial.print("MQTT 控制主题：");
   Serial.println(MQTT_CONTROL_TOPIC);
   frame.reserve(256);
+  xTaskCreatePinnedToCore(LoraBridgeTask, "LoraBridge", 4096, nullptr, 2, &loraBridgeTaskHandle, 1);
 }
 
 void loop() {
@@ -290,44 +353,5 @@ void loop() {
   connectMQTT();
   mqttClient.loop();
   pollUsbSerialCommand();
-
-  while (loraSerial.available()) {
-    char ch = (char)loraSerial.read();
-    lastLoraRxMillis = millis();
-    if (!inFrame) {
-      if (ch == '{') {
-        inFrame = true;
-        braceDepth = 1;
-        frame = "{";
-      }
-      continue;
-    }
-
-    if (frame.length() > 240) {
-      Serial.println("LoRa 帧超过 240 字节，已丢弃。");
-      resetFrame();
-      continue;
-    }
-
-    frame += ch;
-    if (ch == '{') {
-      braceDepth++;
-    } else if (ch == '}') {
-      braceDepth--;
-      if (braceDepth == 0) {
-        bool validFrame = forwardPayload(frame);
-        resetFrame();
-        if (validFrame && pendingCommand.length() > 0 && pendingCommandRepeats > 0) {
-          unsigned long now = millis();
-          nextCommandSendMillis = now + 800UL;
-          downlinkWindowUntilMillis = now + 1800UL;
-          commandSentInCurrentWindow = false;
-          sendPendingCommand();
-        }
-      }
-    }
-  }
-
-  sendPendingCommand();
   delay(10);
 }
